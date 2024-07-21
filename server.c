@@ -32,7 +32,6 @@ void process_request(char* request_body, char** response) {
 
 	char* header;
 	while((header = strtok(NULL, "\r\n"))) {
-		printf("header: %s$\n", header);
 		if(strncmp("User-Agent: ", header, 12) == 0) {
 			user_agent = strdup(header+12);
 		}
@@ -50,13 +49,34 @@ void process_request(char* request_body, char** response) {
 	}
 }
 
+void handle_client(int client_fd) {
+	char request_body[BUFFER_SIZE] = {0};
+	int bytes_read = recv(client_fd, request_body, BUFFER_SIZE, 0);
+
+	if (bytes_read < 0) {
+		printf("Error in request: %s \n", strerror(errno));
+		close(client_fd);
+		return;
+	}
+
+	char* response;
+	process_request(request_body, &response);
+
+	if(send(client_fd, response, strlen(response), 0) == -1) {
+		printf("Response failed: %s \n", strerror(errno));
+		close(client_fd);
+		return;
+	}
+
+	printf("Response sent\n");
+	free(response);
+	close(client_fd);
+}
+
 int main() {
 	// Disable output buffering
 	setbuf(stdout, NULL);
  	setbuf(stderr, NULL);
-
-	char *ok_response = "HTTP/1.1 200 OK\r\n\r\n";
-	char *not_found_response = "HTTP/1.1 404 Not Found\r\n\r\n";
 	
 	int server_fd, client_addr_len;
 	struct sockaddr_in client_addr;
@@ -97,33 +117,29 @@ int main() {
 	printf("Waiting for a client to connect...\n");
 	client_addr_len = sizeof(client_addr);
 	
-	int client_fd = accept(server_fd, (struct sockaddr *) &client_addr, &client_addr_len);
-	printf("Client connected\n");
+	
 
-	char request_body[BUFFER_SIZE] = {0};
-	int bytes_read = recv(client_fd, request_body, BUFFER_SIZE, 0);
+	while (1) {
+		int client_fd = accept(server_fd, (struct sockaddr *) &client_addr, &client_addr_len);
+		printf("Client connected\n");
 
-	if (bytes_read < 0) {
-		printf("Error in request: %s \n", strerror(errno));
-		close(client_fd);
-        close(server_fd);
-		return 1;
+		pid_t pid = fork();
+		if (pid == 0) {
+			// child process
+			close(server_fd);
+			handle_client(client_fd);
+			exit(0);
+		} else if (pid > 0) {
+			// parent process
+			close(client_fd);
+		} else {
+			printf("Fork failed: %s \n", strerror(errno));
+			close(client_fd);
+		}
+
+		while (waitpid(-1, NULL, WNOHANG) > 0);
 	}
 
-	char* response;
-	process_request(request_body, &response);
-
-	if(send(client_fd, response, strlen(response), 0) == -1) {
-		printf("Response failed: %s \n", strerror(errno));
-		close(client_fd);
-		close(server_fd);
-		return 1;
-	}
-	free(response);
-
-	printf("Response sent\n");
-
-	close(client_fd);
 	close(server_fd);
 
 	return 0;
