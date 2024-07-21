@@ -9,7 +9,10 @@
 
 #define BUFFER_SIZE 1024
 
-void create_ok_response(char* content, char** response) {
+const char* content_type_text = "text/plain";
+const char* content_type_octet_stream = "application/octet-stream";
+
+void create_ok_response(char* content, char** response, char* content_type) {
 	int content_len = strlen(content);
 
 	char s_content_len[10];
@@ -18,13 +21,15 @@ void create_ok_response(char* content, char** response) {
 	int response_buffer_size = content_len + 100;
 	*response = (char*) malloc((response_buffer_size+1) * sizeof(char));
 
-	strcpy(*response, "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: ");
+	strcpy(*response, "HTTP/1.1 200 OK\r\nContent-Type: ");
+	strcat(*response, content_type);
+	strcat(*response, "\r\nContent-Length: ");
 	strcat(*response, s_content_len);
 	strcat(*response, "\r\n\r\n");
 	strcat(*response, content);
 }
 
-void process_request(char* request_body, char** response) {
+void process_request(char* request_body, char** response, int argc, char** argv) {
 	char* method = strtok(request_body, " ");
 	char* path = strtok(NULL, " ");
 	char* protocol = strtok(NULL, "\r\n");
@@ -41,13 +46,20 @@ void process_request(char* request_body, char** response) {
 		*response = strdup("HTTP/1.1 200 OK\r\n\r\n");
 	} else if (strncmp("/echo/", path, 6) == 0) {
 		char* content = path + 6;
-		create_ok_response(content, response);
+		create_ok_response(content, response, content_type_text);
 	} else if (strncmp("/user-agent", path, 11) == 0) {
-		create_ok_response(user_agent, response);
+		create_ok_response(user_agent, response, content_type_text);
 	} else if (strncmp("/files/", path, 7) == 0) {
+		if (argc < 2 || strcmp(argv[1], "--directory") != 0) {
+			return;
+		}
 		char* file_name = path + 7;
+		char* file_path = malloc(strlen(argv[2]) + strlen(file_name) + 1);
+		strcpy(file_path, argv[2]);
+		strcat(file_path, file_name);
+
 		FILE* req_file;
-		req_file = fopen(file_name, "r");
+		req_file = fopen(file_path, "r");
 
 		if (req_file == NULL) {
 			*response = strdup("HTTP/1.1 404 Not Found\r\n\r\n");
@@ -75,7 +87,7 @@ void process_request(char* request_body, char** response) {
 			file_content[file_size] = '\0';
 
 			fclose(req_file);
-			create_ok_response(file_content, response);
+			create_ok_response(file_content, response, content_type_octet_stream);
 			free(file_content);
 		}
 	} else {
@@ -83,7 +95,7 @@ void process_request(char* request_body, char** response) {
 	}
 }
 
-void handle_client(int client_fd) {
+void handle_client(int client_fd, int argc, char** argv) {
 	char request_body[BUFFER_SIZE] = {0};
 	int bytes_read = recv(client_fd, request_body, BUFFER_SIZE, 0);
 
@@ -94,7 +106,7 @@ void handle_client(int client_fd) {
 	}
 
 	char* response;
-	process_request(request_body, &response);
+	process_request(request_body, &response, argc, argv);
 
 	if(send(client_fd, response, strlen(response), 0) == -1) {
 		printf("Response failed: %s \n", strerror(errno));
@@ -107,7 +119,7 @@ void handle_client(int client_fd) {
 	close(client_fd);
 }
 
-int main() {
+int main(int argc, char *argv[]) {
 	// Disable output buffering
 	setbuf(stdout, NULL);
  	setbuf(stderr, NULL);
@@ -150,8 +162,6 @@ int main() {
 	
 	printf("Waiting for a client to connect...\n");
 	client_addr_len = sizeof(client_addr);
-	
-	
 
 	while (1) {
 		int client_fd = accept(server_fd, (struct sockaddr *) &client_addr, &client_addr_len);
@@ -161,7 +171,7 @@ int main() {
 		if (pid == 0) {
 			// child process
 			close(server_fd);
-			handle_client(client_fd);
+			handle_client(client_fd, argc, argv);
 			exit(0);
 		} else if (pid > 0) {
 			// parent process
