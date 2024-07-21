@@ -9,23 +9,42 @@
 
 #define BUFFER_SIZE 1024
 
-void get_response(char* path, char** response) {
+void create_ok_response(char* content, char** response) {
+	int content_len = strlen(content);
+
+	char s_content_len[10];
+	sprintf(s_content_len, "%d", content_len);
+
+	int response_buffer_size = content_len + 100;
+	*response = (char*) malloc((response_buffer_size+1) * sizeof(char));
+
+	strcpy(*response, "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: ");
+	strcat(*response, s_content_len);
+	strcat(*response, "\r\n\r\n");
+	strcat(*response, content);
+}
+
+void process_request(char* request_body, char** response) {
+	char* method = strtok(request_body, " ");
+	char* path = strtok(NULL, " ");
+	char* protocol = strtok(NULL, "\r\n");
+	char* user_agent;
+
+	char* header;
+	while((header = strtok(NULL, "\r\n"))) {
+		printf("header: %s$\n", header);
+		if(strncmp("User-Agent: ", header, 12) == 0) {
+			user_agent = strdup(header+12);
+		}
+	}
 
 	if (strcmp("/", path) == 0) {
 		*response = strdup("HTTP/1.1 200 OK\r\n\r\n");
 	} else if (strncmp("/echo/", path, 6) == 0) {
 		char* content = path + 6;
-		int content_len = strlen(content);
-		char s_content_len[10];
-		sprintf(s_content_len, "%d", content_len);
-
-		int response_buffer_size = content_len + 100;
-		*response = (char*) malloc((response_buffer_size+1) * sizeof(char));
-
-		strcpy(*response, "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: ");
-		strcat(*response, s_content_len);
-		strcat(*response, "\r\n\r\n");
-		strcat(*response, content);
+		create_ok_response(content, response);
+	} else if (strncmp("/user-agent", path, 11) == 0) {
+		create_ok_response(user_agent, response);
 	} else {
 		*response = strdup("HTTP/1.1 404 Not Found\r\n\r\n");
 	}
@@ -91,11 +110,8 @@ int main() {
 		return 1;
 	}
 
-	char* method = strtok(request_body, " ");
-	char* path = strtok(NULL, " ");
-
 	char* response;
-	get_response(path, &response);
+	process_request(request_body, &response);
 
 	if(send(client_fd, response, strlen(response), 0) == -1) {
 		printf("Response failed: %s \n", strerror(errno));
