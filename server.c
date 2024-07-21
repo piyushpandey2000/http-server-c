@@ -9,6 +9,28 @@
 
 #define BUFFER_SIZE 1024
 
+void get_response(char* path, char** response) {
+
+	if (strcmp("/", path) == 0) {
+		*response = strdup("HTTP/1.1 200 OK\r\n\r\n");
+	} else if (strncmp("/echo/", path, 6) == 0) {
+		char* content = path + 6;
+		int content_len = strlen(content);
+		char s_content_len[10];
+		sprintf(s_content_len, "%d", content_len);
+
+		int response_buffer_size = content_len + 100;
+		*response = (char*) malloc((response_buffer_size+1) * sizeof(char));
+
+		strcpy(*response, "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: ");
+		strcat(*response, s_content_len);
+		strcat(*response, "\r\n\r\n");
+		strcat(*response, content);
+	} else {
+		*response = strdup("HTTP/1.1 404 Not Found\r\n\r\n");
+	}
+}
+
 int main() {
 	// Disable output buffering
 	setbuf(stdout, NULL);
@@ -69,10 +91,11 @@ int main() {
 		return 1;
 	}
 
-	char* path = strtok(request_body, " ");
-	path = strtok(NULL, " ");
+	char* method = strtok(request_body, " ");
+	char* path = strtok(NULL, " ");
 
-	char *response = strcmp("/", path) == 0 ? ok_response : not_found_response;
+	char* response;
+	get_response(path, &response);
 
 	if(send(client_fd, response, strlen(response), 0) == -1) {
 		printf("Response failed: %s \n", strerror(errno));
@@ -80,6 +103,7 @@ int main() {
 		close(server_fd);
 		return 1;
 	}
+	free(response);
 
 	printf("Response sent\n");
 
