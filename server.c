@@ -44,6 +44,40 @@ void process_request(char* request_body, char** response) {
 		create_ok_response(content, response);
 	} else if (strncmp("/user-agent", path, 11) == 0) {
 		create_ok_response(user_agent, response);
+	} else if (strncmp("/files/", path, 7) == 0) {
+		char* file_name = path + 7;
+		FILE* req_file;
+		req_file = fopen(file_name, "r");
+
+		if (req_file == NULL) {
+			*response = strdup("HTTP/1.1 404 Not Found\r\n\r\n");
+		} else {
+			fseek(req_file, 0, SEEK_END);
+			long file_size = ftell(req_file);
+			rewind(req_file);
+
+			char* file_content = malloc(file_size + 1);
+			if (file_content == NULL) {
+				printf("error: couldn't allocate %ld bytes to read file", file_size);
+				fclose(req_file);
+				*response = strdup("HTTP/1.1 500 Internal Server Error\r\n\r\n");
+				return;
+        	}
+
+			size_t read_size = fread(file_content, sizeof(char), file_size, req_file);
+			if (read_size != file_size) {
+				printf("error: file size is %ld bytes, read %ld bytes", file_size, read_size);
+				fclose(req_file);
+            	free(file_content);
+            	*response = strdup("HTTP/1.1 500 Internal Server Error\r\n\r\n");
+            	return;
+			}
+			file_content[file_size] = '\0';
+
+			fclose(req_file);
+			create_ok_response(file_content, response);
+			free(file_content);
+		}
 	} else {
 		*response = strdup("HTTP/1.1 404 Not Found\r\n\r\n");
 	}
