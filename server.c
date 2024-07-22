@@ -7,10 +7,17 @@
 #include <errno.h>
 #include <unistd.h>
 
+
 #define BUFFER_SIZE 1024
+
 
 const char* content_type_text = "text/plain";
 const char* content_type_octet_stream = "application/octet-stream";
+
+const char* response_201 = "HTTP/1.1 201 Created\r\n\r\n";
+const char* response_404 = "HTTP/1.1 404 Not Found\r\n\r\n";
+const char* response_500 = "HTTP/1.1 500 Internal Server Error\r\n\r\n";
+
 
 void create_ok_response(char* content, char** response, char* content_type) {
 	int content_len = strlen(content);
@@ -29,8 +36,57 @@ void create_ok_response(char* content, char** response, char* content_type) {
 	strcat(*response, content);
 }
 
-void process_request(char* request_body, char** response, int argc, char** argv) {
-	char* method = strtok(request_body, " ");
+void process_file_read_req(char* file_path, char** response) {
+	FILE* req_file;
+	req_file = fopen(file_path, "r");
+
+	if (req_file == NULL) {
+		*response = strdup(response_404);
+	} else {
+		fseek(req_file, 0, SEEK_END);
+		long file_size = ftell(req_file);
+		rewind(req_file);
+
+		char* file_content = malloc(file_size + 1);
+		if (file_content == NULL) {
+			printf("error: couldn't allocate %ld bytes to read file", file_size);
+			fclose(req_file);
+			*response = strdup(response_500);
+			return;
+		}
+
+		size_t read_size = fread(file_content, sizeof(char), file_size, req_file);
+		if (read_size != file_size) {
+			printf("error: file size is %ld bytes, read %ld bytes", file_size, read_size);
+			fclose(req_file);
+			free(file_content);
+			*response = strdup(response_500);
+			return;
+		}
+		file_content[file_size] = '\0';
+
+		fclose(req_file);
+		create_ok_response(file_content, response, content_type_octet_stream);
+		free(file_content);
+	}
+}
+
+void process_file_write_req(char* file_path, char* content, char** response) {
+	FILE* req_file;
+	req_file = fopen(file_path, "w");
+
+	if (req_file != NULL) {
+		fputs(content, req_file);
+		fclose(req_file);
+		*response = strdup(response_201);
+	}
+}
+
+void process_request(char* request, char** response, int argc, char** argv) {
+	char* headers_end = strstr(request, "\r\n\r\n");
+    char* body = headers_end + 4;
+
+	char* method = strtok(request, " ");
 	char* path = strtok(NULL, " ");
 	char* protocol = strtok(NULL, "\r\n");
 	char* user_agent;
@@ -58,40 +114,14 @@ void process_request(char* request_body, char** response, int argc, char** argv)
 		strcpy(file_path, argv[2]);
 		strcat(file_path, file_name);
 
-		FILE* req_file;
-		req_file = fopen(file_path, "r");
-
-		if (req_file == NULL) {
-			*response = strdup("HTTP/1.1 404 Not Found\r\n\r\n");
+		if (strcmp(method, "POST") == 0) {
+			process_file_write_req(file_path, body, response);
 		} else {
-			fseek(req_file, 0, SEEK_END);
-			long file_size = ftell(req_file);
-			rewind(req_file);
-
-			char* file_content = malloc(file_size + 1);
-			if (file_content == NULL) {
-				printf("error: couldn't allocate %ld bytes to read file", file_size);
-				fclose(req_file);
-				*response = strdup("HTTP/1.1 500 Internal Server Error\r\n\r\n");
-				return;
-        	}
-
-			size_t read_size = fread(file_content, sizeof(char), file_size, req_file);
-			if (read_size != file_size) {
-				printf("error: file size is %ld bytes, read %ld bytes", file_size, read_size);
-				fclose(req_file);
-            	free(file_content);
-            	*response = strdup("HTTP/1.1 500 Internal Server Error\r\n\r\n");
-            	return;
-			}
-			file_content[file_size] = '\0';
-
-			fclose(req_file);
-			create_ok_response(file_content, response, content_type_octet_stream);
-			free(file_content);
+			process_file_read_req(file_path, response);
 		}
+		free(file_path);
 	} else {
-		*response = strdup("HTTP/1.1 404 Not Found\r\n\r\n");
+		*response = strdup(response_404);
 	}
 }
 
