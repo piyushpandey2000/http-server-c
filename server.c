@@ -19,7 +19,7 @@ const char* response_404 = "HTTP/1.1 404 Not Found\r\n\r\n";
 const char* response_500 = "HTTP/1.1 500 Internal Server Error\r\n\r\n";
 
 
-void create_ok_response(char* content, char** response, char* content_type) {
+void create_ok_response(char* content, char** response, char* content_type, char* encoding) {
 	int content_len = strlen(content);
 
 	char s_content_len[10];
@@ -30,6 +30,18 @@ void create_ok_response(char* content, char** response, char* content_type) {
 
 	strcpy(*response, "HTTP/1.1 200 OK\r\nContent-Type: ");
 	strcat(*response, content_type);
+
+	if(encoding != NULL) {
+		char* enc = strtok(encoding, ", ");
+		while(enc) {
+			if(strcmp(enc, "gzip") == 0) {
+				strcat(*response, "\r\nContent-Encoding: ");
+				strcat(*response, enc);
+			}
+			enc = strtok(NULL, ", ");
+		}
+	}
+
 	strcat(*response, "\r\nContent-Length: ");
 	strcat(*response, s_content_len);
 	strcat(*response, "\r\n\r\n");
@@ -66,7 +78,7 @@ void process_file_read_req(char* file_path, char** response) {
 		file_content[file_size] = '\0';
 
 		fclose(req_file);
-		create_ok_response(file_content, response, content_type_octet_stream);
+		create_ok_response(file_content, response, content_type_octet_stream, NULL);
 		free(file_content);
 	}
 }
@@ -82,6 +94,10 @@ void process_file_write_req(char* file_path, char* content, char** response) {
 	}
 }
 
+void process_echo_req(char* content, char** response, char* accept_encoding) {
+	create_ok_response(content, response, content_type_text, accept_encoding);
+}
+
 void process_request(char* request, char** response, int argc, char** argv) {
 	char* headers_end = strstr(request, "\r\n\r\n");
     char* body = headers_end + 4;
@@ -90,11 +106,14 @@ void process_request(char* request, char** response, int argc, char** argv) {
 	char* path = strtok(NULL, " ");
 	char* protocol = strtok(NULL, "\r\n");
 	char* user_agent;
+	char* accept_encoding;
 
 	char* header;
 	while((header = strtok(NULL, "\r\n"))) {
 		if(strncmp("User-Agent: ", header, 12) == 0) {
 			user_agent = strdup(header+12);
+		} else if (strncmp("Accept-Encoding: ", header, 17) == 0) {
+			accept_encoding = strdup(header+17);
 		}
 	}
 
@@ -102,9 +121,9 @@ void process_request(char* request, char** response, int argc, char** argv) {
 		*response = strdup("HTTP/1.1 200 OK\r\n\r\n");
 	} else if (strncmp("/echo/", path, 6) == 0) {
 		char* content = path + 6;
-		create_ok_response(content, response, content_type_text);
+		process_echo_req(content, response, accept_encoding);
 	} else if (strncmp("/user-agent", path, 11) == 0) {
-		create_ok_response(user_agent, response, content_type_text);
+		create_ok_response(user_agent, response, content_type_text, NULL);
 	} else if (strncmp("/files/", path, 7) == 0) {
 		if (argc < 2 || strcmp(argv[1], "--directory") != 0) {
 			return;
@@ -163,8 +182,6 @@ int main(int argc, char *argv[]) {
 		return 1;
 	}
 	
-	// Since the tester restarts your program quite often, setting SO_REUSEADDR
-	// ensures that we don't run into 'Address already in use' errors
 	int reuse = 1;
 	if (setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse)) < 0) {
 		printf("SO_REUSEADDR failed: %s \n", strerror(errno));
